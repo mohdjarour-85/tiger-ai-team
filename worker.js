@@ -718,6 +718,7 @@ async function load() {
       <button onclick="syncEmail()">مزامنة الآن</button>
       <a class="btn" href="/email/view">مراجعة وإرسال الردود</a>
       <a class="btn" href="/zoho/connect">ربط حساب جديد</a>
+      <button onclick="pushSignatures()">رفع التوقيعات لكل الحسابات</button>
       <div id="emailResult"></div>
     </div>
     <div class="card">
@@ -746,6 +747,12 @@ async function syncEmail() {
   const data = await res.json();
   document.getElementById('emailResult').innerText = JSON.stringify(data);
   load();
+}
+async function pushSignatures() {
+  document.getElementById('emailResult').innerText = 'جاري رفع التوقيعات...';
+  const res = await fetch('/zoho/push-signatures', { method: 'POST' });
+  const data = await res.json();
+  document.getElementById('emailResult').innerText = JSON.stringify(data);
 }
 
 async function genLeads() {
