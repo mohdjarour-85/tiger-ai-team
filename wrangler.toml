@@ -9,3 +9,7 @@ database_id = "1901d404-def3-4452-a9ba-5cc66bb252db"
 
 [triggers]
 crons = ["0 6 * * *"]
+[vars]
+WEBSITE_URL = "https://tiger-event.com"
+ZOHO_CLIENT_ID = "1000.IEC1QBNRC3X4D02ZK1HUXTN5QBIX7H"
+ZOHO_REDIRECT_URI = "https://tiger-ai-team.mohdjarour.workers.dev/zoho-callback"
