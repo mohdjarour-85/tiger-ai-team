@@ -13,3 +13,4 @@ crons = ["0 6 * * *"]
 WEBSITE_URL = "https://tiger-event.com"
 ZOHO_CLIENT_ID = "1000.IEC1QBNRC3X4D02ZK1HUXTN5QBIX7H"
 ZOHO_REDIRECT_URI = "https://tiger-ai-team.mohdjarour.workers.dev/zoho-callback"
+ZOHO_ACCOUNTS = '[{"email":"mohamedjarour@tiger-event.com","refresh_token":"1000.328151efa30265a10426a2aadf3302ba.a816d8e0c294a7723558d6772daad90c"},{"email":"info.tiger@tiger-event.com","refresh_token":"1000.8c2665c21e07375dbadf22a843b5da30.636eea7b8b1b2d81e45c1e6c30a570e6"},{"email":"tiger@tiger-event.com","refresh_token":"1000.074e6c28f3dc31e23417137c3b0ca5dc.1f19a01342bcdfbf4ec4963e5414a3d5"},{"email":"mohammed.alshekih@tiger-event.com","refresh_token":"1000.add8f6ac6364c73a43fbfacbe85f1ba0.64c590705f5c630099fec2eea1ecb6c0"}]'
