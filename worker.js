@@ -545,8 +545,7 @@ async function pushAllSignatures(env) {
     }
     try {
       const accessToken = await getZohoAccessTokenFor(env, acc.refresh_token);
-      const accInfo = await getZohoAccountInfo(accessToken);
-      const r = await pushOneSignature(accessToken, accInfo.accountId, html);
+      const r = await pushOneSignature(accessToken, html);
       results.push({ email: acc.email, ok: true, result: r });
     } catch (e) {
       results.push({ email: acc.email, ok: false, error: String(e) });
@@ -555,38 +554,42 @@ async function pushAllSignatures(env) {
   return { ok: true, results };
 }
 
-async function pushOneSignature(accessToken, accountId, htmlContent) {
-  // نشوف هل فيه توقيع موجود مسبقًا
-  const listResp = await fetch(`https://mail.zoho.com/api/accounts/${accountId}/signatures`, {
+async function pushOneSignature(accessToken, htmlContent) {
+  // المسار الصحيح لتوقيعات Zoho Mail: /api/accounts/signature (بدون accountId)
+  const listResp = await fetch(`https://mail.zoho.com/api/accounts/signature`, {
     headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
   });
   const listData = await listResp.json();
-  const existing = listData?.data?.[0];
+  const list = Array.isArray(listData?.data) ? listData.data : listData?.data ? [listData.data] : [];
+  const existing = list[0];
+  const existingId = existing?.id || existing?.signatureId;
 
-  if (existing && existing.signatureId) {
-    const putResp = await fetch(
-      `https://mail.zoho.com/api/accounts/${accountId}/signatures/${existing.signatureId}`,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Zoho-oauthtoken ${accessToken}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ signatureContent: htmlContent, isDefault: true }),
-      }
-    );
+  if (existingId) {
+    const putResp = await fetch(`https://mail.zoho.com/api/accounts/signature`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Zoho-oauthtoken ${accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        id: existingId,
+        name: "التوقيع الرسمي",
+        content: htmlContent,
+        position: 0,
+      }),
+    });
     return await putResp.json();
   } else {
-    const postResp = await fetch(`https://mail.zoho.com/api/accounts/${accountId}/signatures`, {
+    const postResp = await fetch(`https://mail.zoho.com/api/accounts/signature`, {
       method: "POST",
       headers: {
         Authorization: `Zoho-oauthtoken ${accessToken}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        signatureName: "التوقيع الرسمي",
-        signatureContent: htmlContent,
-        isDefault: true,
+        name: "التوقيع الرسمي",
+        content: htmlContent,
+        position: 0,
       }),
     });
     return await postResp.json();
@@ -718,7 +721,6 @@ async function load() {
       <button onclick="syncEmail()">مزامنة الآن</button>
       <a class="btn" href="/email/view">مراجعة وإرسال الردود</a>
       <a class="btn" href="/zoho/connect">ربط حساب جديد</a>
-      <button onclick="pushSignatures()">رفع التوقيعات لكل الحسابات</button>
       <div id="emailResult"></div>
     </div>
     <div class="card">
@@ -747,12 +749,6 @@ async function syncEmail() {
   const data = await res.json();
   document.getElementById('emailResult').innerText = JSON.stringify(data);
   load();
-}
-async function pushSignatures() {
-  document.getElementById('emailResult').innerText = 'جاري رفع التوقيعات...';
-  const res = await fetch('/zoho/push-signatures', { method: 'POST' });
-  const data = await res.json();
-  document.getElementById('emailResult').innerText = JSON.stringify(data);
 }
 
 async function genLeads() {
