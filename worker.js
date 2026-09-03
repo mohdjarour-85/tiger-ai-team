@@ -290,7 +290,9 @@ async function generateLeads(env, sector, count) {
     ? sector
     : "أقسام التسويق والعلاقات العامة في البنوك، المؤسسات التجارية، المدارس الأجنبية والإنجليزية، والشركات بمختلف أنواعها في الكويت";
 
-  const prompt = `ابحث فعليًا عبر الإنترنت عن ${count} شركات أو مؤسسات حقيقية بالكويت ضمن هذا النطاق: "${targetSector}".
+  const safeCount = Math.min(count || 5, 5); // تقليل العدد يقلل زمن التنفيذ
+
+  const prompt = `ابحث فعليًا عبر الإنترنت عن ${safeCount} شركات أو مؤسسات حقيقية بالكويت ضمن هذا النطاق: "${targetSector}".
 المطلوب تحديدًا: إيميل قسم التسويق (Marketing) أو العلاقات العامة (PR) لكل جهة إن وجد بموقعها الرسمي (وليس إيميل عام أو دعم فني)، ولا تخترع أي إيميل غير موجود فعليًا.
 لكل جهة أعطني: الاسم، نوع القطاع (بنك/مدرسة/شركة تجارية/إلخ)، الموقع الإلكتروني، وإيميل قسم التسويق/العلاقات العامة.
 ثم اكتب مسودتين لإيميل تعريفي قصير (3-5 أسطر لكل نسخة) تقدّم شركة Tiger Event لتنظيم الفعاليات، وتطلب التسجيل لديهم كمورّد (Vendor) أو منظّم فعاليات (Event Organizer) معتمد:
@@ -312,12 +314,16 @@ async function generateLeads(env, sector, count) {
         model: "claude-sonnet-4-6",
         max_tokens: 4000,
         messages: [{ role: "user", content: prompt }],
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
       }),
+      signal: AbortSignal.timeout(45000),
     });
     data = await resp.json();
   } catch (e) {
-    return { ok: false, error: "فشل الاتصال بـ Anthropic API: " + String(e) };
+    const msg = (e.name === "TimeoutError" || e.name === "AbortError")
+      ? "انتهت مهلة الاتصال بـ Anthropic (45 ثانية) — جرب تحديد قطاع أضيق أو عدد أقل"
+      : "فشل الاتصال بـ Anthropic API: " + String(e);
+    return { ok: false, error: msg };
   }
 
   if (data.error) {
@@ -357,6 +363,8 @@ async function generateLeads(env, sector, count) {
       .run();
   }
 
+  return { ok: true, added: list.length, items: list };
+}
   return { ok: true, added: list.length, items: list };
 }
 
