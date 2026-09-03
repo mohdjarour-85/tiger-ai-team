@@ -819,7 +819,9 @@ async function load() {
       <p>عدد الشركات المسجلة: \${s.leads_total}</p>
       <input id="sectorInput" placeholder="اتركه فاضي للبحث الشامل، أو حدد قطاع معيّن" />
       <button onclick="genLeads()">توليد قائمة</button>
+      <button onclick="viewLeads()">عرض القائمة</button>
       <div id="leadsResult"></div>
+      <div id="leadsView"></div>
     </div>
   \`;
 }
@@ -875,6 +877,29 @@ async function genLeads() {
     } else {
       el.innerText = 'خطأ بالاتصال: ' + String(e);
     }
+  }
+}
+
+async function viewLeads() {
+  const el = document.getElementById('leadsView');
+  el.innerHTML = 'جاري التحميل...';
+  try {
+    const list = await (await fetch('/leads/list')).json();
+    if (!list.length) {
+      el.innerHTML = 'ما فيه شركات مسجلة بعد';
+      return;
+    }
+    el.innerHTML = list.map(item => \`
+      <div style="border:1px solid #444;border-radius:8px;padding:10px;margin:8px 0;">
+        <b>\${item.company_name || '(بدون اسم)'}</b> — \${item.sector_type || ''}<br>
+        <small>\${item.website || ''}</small><br>
+        📧 \${item.email || '(لا يوجد إيميل مؤكد — دقق يدويًا)'}<br>
+        <details><summary>مسودة عربي (اضغط للنسخ)</summary><textarea readonly style="width:100%;height:90px;" onclick="this.select()">\${item.draft_email_ar || ''}</textarea></details>
+        <details><summary>مسودة إنجليزي (اضغط للنسخ)</summary><textarea readonly style="width:100%;height:90px;" onclick="this.select()">\${item.draft_email_en || ''}</textarea></details>
+      </div>
+    \`).join('');
+  } catch (e) {
+    el.innerHTML = 'خطأ: ' + String(e);
   }
 }
 load();
