@@ -296,7 +296,7 @@ async function generateLeads(env, sector, count) {
     ? sector
     : "أقسام التسويق والعلاقات العامة في البنوك، المؤسسات التجارية، المدارس الأجنبية والإنجليزية، والشركات بمختلف أنواعها في الكويت";
 
-  const safeCount = Math.min(count || 8, 10);
+  const safeCount = Math.min(count || 6, 6);
 
   const prompt = `اعطني ${safeCount} شركات أو مؤسسات معروفة وحقيقية بالكويت ضمن هذا النطاق: "${targetSector}"، بالاعتماد على معرفتك العامة (بدون بحث فعلي بالإنترنت).
 لكل جهة أعطني: الاسم، نوع القطاع (بنك/مدرسة/شركة تجارية/إلخ)، الموقع الإلكتروني إن كنت تعرفه (وإلا اتركه فاضي)، وإيميل قسم التسويق أو العلاقات العامة إن كنت متأكدًا منه فعليًا — وإلا اترك حقل الإيميل فاضيًا ولا تخترع إيميل غير متأكد منه (سيتم التحقق يدويًا لاحقًا من موقع كل جهة).
@@ -317,15 +317,15 @@ async function generateLeads(env, sector, count) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 4000,
+        max_tokens: 2500,
         messages: [{ role: "user", content: prompt }],
       }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(55000),
     });
     data = await resp.json();
   } catch (e) {
     const msg = (e.name === "TimeoutError" || e.name === "AbortError")
-      ? "انتهت مهلة الاتصال بـ Anthropic (25 ثانية) — جرب تحديد قطاع أضيق أو عدد أقل"
+      ? "انتهت مهلة الاتصال بـ Anthropic (55 ثانية) — جرب تحديد قطاع أضيق أو عدد أقل"
       : "فشل الاتصال بـ Anthropic API: " + String(e);
     return { ok: false, error: msg };
   }
@@ -854,9 +854,9 @@ async function pushSignatures() {
 async function genLeads() {
   const sector = document.getElementById('sectorInput').value;
   const el = document.getElementById('leadsResult');
-  el.innerText = 'جاري التوليد... (يفترض ثواني معدودة)';
+  el.innerText = 'جاري التوليد... (قد يأخذ حتى دقيقة)';
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), 65000);
   try {
     const res = await fetch('/leads/generate', {
       method: 'POST',
@@ -873,7 +873,7 @@ async function genLeads() {
   } catch (e) {
     clearTimeout(timeoutId);
     if (e.name === 'AbortError') {
-      el.innerText = 'تجاوز الطلب 30 ثانية — جرب مرة ثانية';
+      el.innerText = 'تجاوز الطلب 65 ثانية — جرب مرة ثانية';
     } else {
       el.innerText = 'خطأ بالاتصال: ' + String(e);
     }
