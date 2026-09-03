@@ -365,9 +365,6 @@ async function generateLeads(env, sector, count) {
 
   return { ok: true, added: list.length, items: list };
 }
-  return { ok: true, added: list.length, items: list };
-}
-
 async function getLeads(env) {
   const { results } = await env.DB.prepare(
     "SELECT * FROM leads ORDER BY id DESC LIMIT 50"
