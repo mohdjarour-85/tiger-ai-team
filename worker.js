@@ -312,7 +312,7 @@ async function generateLeads(env, sector, count) {
         model: "claude-sonnet-4-6",
         max_tokens: 4000,
         messages: [{ role: "user", content: prompt }],
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
       }),
     });
     data = await resp.json();
@@ -844,16 +844,30 @@ async function pushSignatures() {
 async function genLeads() {
   const sector = document.getElementById('sectorInput').value;
   // يسمح بالبحث حتى لو كان الحقل فاضي (بحث شامل افتراضي)
-  document.getElementById('leadsResult').innerText = 'جاري البحث...';
-  const res = await fetch('/leads/generate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sector })
-  });
-  const data = await res.json();
-  document.getElementById('leadsResult').innerText = data.ok
-    ? 'تمت إضافة ' + data.added + ' شركة'
-    : 'خطأ: ' + (data.error || '');
+  const el = document.getElementById('leadsResult');
+  el.innerText = 'جاري البحث... (قد يأخذ دقيقة كاملة)';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  try {
+    const res = await fetch('/leads/generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sector }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    const data = await res.json();
+    el.innerText = data.ok
+      ? 'تمت إضافة ' + data.added + ' شركة'
+      : 'خطأ: ' + (data.error || '');
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      el.innerText = 'تجاوز البحث المهلة الزمنية (90 ثانية) — جرب تحديد قطاع أضيق (مثلاً "بنوك بالكويت" بدل ترك الحقل فاضي)';
+    } else {
+      el.innerText = 'خطأ بالاتصال: ' + String(e);
+    }
+  }
   load();
 }
 load();
