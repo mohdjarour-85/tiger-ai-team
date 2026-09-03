@@ -107,11 +107,7 @@ export default {
       // ===================== موظف بحث الشركات =====================
       if (path === "/leads/generate" && request.method === "POST") {
         const body = await request.json();
-        ctx.waitUntil(runLeadJob(env, body.sector, body.count || 5));
-        return json({ ok: true, queued: true });
-      }
-      if (path === "/leads/status") {
-        return json(await getLatestLeadJob(env));
+        return json(await generateLeads(env, body.sector, body.count || 8));
       }
       if (path === "/leads/list") {
         return json(await getLeads(env));
@@ -300,11 +296,10 @@ async function generateLeads(env, sector, count) {
     ? sector
     : "أقسام التسويق والعلاقات العامة في البنوك، المؤسسات التجارية، المدارس الأجنبية والإنجليزية، والشركات بمختلف أنواعها في الكويت";
 
-  const safeCount = Math.min(count || 5, 5); // تقليل العدد يقلل زمن التنفيذ
+  const safeCount = Math.min(count || 8, 10);
 
-  const prompt = `ابحث فعليًا عبر الإنترنت عن ${safeCount} شركات أو مؤسسات حقيقية بالكويت ضمن هذا النطاق: "${targetSector}".
-المطلوب تحديدًا: إيميل قسم التسويق (Marketing) أو العلاقات العامة (PR) لكل جهة إن وجد بموقعها الرسمي (وليس إيميل عام أو دعم فني)، ولا تخترع أي إيميل غير موجود فعليًا.
-لكل جهة أعطني: الاسم، نوع القطاع (بنك/مدرسة/شركة تجارية/إلخ)، الموقع الإلكتروني، وإيميل قسم التسويق/العلاقات العامة.
+  const prompt = `اعطني ${safeCount} شركات أو مؤسسات معروفة وحقيقية بالكويت ضمن هذا النطاق: "${targetSector}"، بالاعتماد على معرفتك العامة (بدون بحث فعلي بالإنترنت).
+لكل جهة أعطني: الاسم، نوع القطاع (بنك/مدرسة/شركة تجارية/إلخ)، الموقع الإلكتروني إن كنت تعرفه (وإلا اتركه فاضي)، وإيميل قسم التسويق أو العلاقات العامة إن كنت متأكدًا منه فعليًا — وإلا اترك حقل الإيميل فاضيًا ولا تخترع إيميل غير متأكد منه (سيتم التحقق يدويًا لاحقًا من موقع كل جهة).
 ثم اكتب مسودتين لإيميل تعريفي قصير (3-5 أسطر لكل نسخة) تقدّم شركة Tiger Event لتنظيم الفعاليات، وتطلب التسجيل لديهم كمورّد (Vendor) أو منظّم فعاليات (Event Organizer) معتمد:
 - نسخة بالعربية الفصحى المهنية
 - نسخة بالإنجليزية المهنية (مستقلة، وليست ترجمة حرفية للنسخة العربية)
@@ -324,14 +319,13 @@ async function generateLeads(env, sector, count) {
         model: "claude-sonnet-4-6",
         max_tokens: 4000,
         messages: [{ role: "user", content: prompt }],
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
       }),
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(25000),
     });
     data = await resp.json();
   } catch (e) {
     const msg = (e.name === "TimeoutError" || e.name === "AbortError")
-      ? "انتهت مهلة الاتصال بـ Anthropic (45 ثانية) — جرب تحديد قطاع أضيق أو عدد أقل"
+      ? "انتهت مهلة الاتصال بـ Anthropic (25 ثانية) — جرب تحديد قطاع أضيق أو عدد أقل"
       : "فشل الاتصال بـ Anthropic API: " + String(e);
     return { ok: false, error: msg };
   }
@@ -374,35 +368,6 @@ async function generateLeads(env, sector, count) {
   }
 
   return { ok: true, added: list.length, items: list };
-}
-
-async function runLeadJob(env, sector, count) {
-  let result;
-  try {
-    result = await generateLeads(env, sector, count);
-  } catch (e) {
-    result = { ok: false, error: "خطأ غير متوقع بالتوليد: " + String(e) };
-  }
-  const message = result.ok
-    ? `تمت إضافة ${result.added} شركة`
-    : `خطأ: ${result.error || "غير معروف"}`;
-  try {
-    await env.DB.prepare(
-      `INSERT INTO lead_jobs (created_at, status, message) VALUES (?, ?, ?)`
-    )
-      .bind(new Date().toISOString(), result.ok ? "ok" : "error", message)
-      .run();
-  } catch (e) {
-    // حتى لو فشل تسجيل النتيجة، ما نوقف التنفيذ
-  }
-  return result;
-}
-
-async function getLatestLeadJob(env) {
-  const { results } = await env.DB.prepare(
-    "SELECT * FROM lead_jobs ORDER BY id DESC LIMIT 1"
-  ).all();
-  return results && results[0] ? results[0] : null;
 }
 
 async function getLeads(env) {
@@ -889,33 +854,30 @@ async function pushSignatures() {
 async function genLeads() {
   const sector = document.getElementById('sectorInput').value;
   const el = document.getElementById('leadsResult');
-  const startedAt = new Date().toISOString();
-  el.innerText = 'بدأ التوليد بالخلفية... جاري التحقق تلقائيًا (قد يأخذ دقيقة أو دقيقتين)';
+  el.innerText = 'جاري التوليد... (يفترض ثواني معدودة)';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
   try {
-    await fetch('/leads/generate', {
+    const res = await fetch('/leads/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sector })
+      body: JSON.stringify({ sector }),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
+    const data = await res.json();
+    el.innerText = data.ok
+      ? 'تمت إضافة ' + data.added + ' شركة — تحقق من الإيميلات يدويًا قبل الإرسال'
+      : 'خطأ: ' + (data.error || '');
+    if (data.ok) setTimeout(load, 1000);
   } catch (e) {
-    el.innerText = 'تعذر إرسال الطلب: ' + String(e);
-    return;
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      el.innerText = 'تجاوز الطلب 30 ثانية — جرب مرة ثانية';
+    } else {
+      el.innerText = 'خطأ بالاتصال: ' + String(e);
+    }
   }
-  let tries = 0;
-  const poll = setInterval(async () => {
-    tries++;
-    try {
-      const job = await (await fetch('/leads/status')).json();
-      if (job && job.created_at > startedAt) {
-        clearInterval(poll);
-        el.innerText = job.message;
-        if (job.status === 'ok') setTimeout(load, 1000);
-      } else if (tries >= 18) {
-        clearInterval(poll);
-        el.innerText = 'ما وصل رد بعد دقائق طويلة — تحقق من Cloudflare Logs، ممكن ANTHROPIC_API_KEY غير مضبوط أو فيه مشكلة اتصال';
-      }
-    } catch (e) {}
-  }, 10000);
 }
 load();
 </script>
