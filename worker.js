@@ -296,14 +296,12 @@ async function generateLeads(env, sector, count) {
     ? sector
     : "أقسام التسويق والعلاقات العامة في البنوك، المؤسسات التجارية، المدارس الأجنبية والإنجليزية، والشركات بمختلف أنواعها في الكويت";
 
-  const safeCount = Math.min(count || 6, 6);
+  const safeCount = Math.min(count || 3, 3);
 
   const prompt = `اعطني ${safeCount} شركات أو مؤسسات معروفة وحقيقية بالكويت ضمن هذا النطاق: "${targetSector}"، بالاعتماد على معرفتك العامة (بدون بحث فعلي بالإنترنت).
-لكل جهة أعطني: الاسم، نوع القطاع (بنك/مدرسة/شركة تجارية/إلخ)، الموقع الإلكتروني إن كنت تعرفه (وإلا اتركه فاضي)، وإيميل قسم التسويق أو العلاقات العامة إن كنت متأكدًا منه فعليًا — وإلا اترك حقل الإيميل فاضيًا ولا تخترع إيميل غير متأكد منه (سيتم التحقق يدويًا لاحقًا من موقع كل جهة).
-ثم اكتب مسودتين لإيميل تعريفي قصير (3-5 أسطر لكل نسخة) تقدّم شركة Tiger Event لتنظيم الفعاليات، وتطلب التسجيل لديهم كمورّد (Vendor) أو منظّم فعاليات (Event Organizer) معتمد:
-- نسخة بالعربية الفصحى المهنية
-- نسخة بالإنجليزية المهنية (مستقلة، وليست ترجمة حرفية للنسخة العربية)
-أعد النتيجة بصيغة JSON فقط بدون أي نص إضافي قبله أو بعده، بالشكل التالي بالضبط:
+لكل جهة أعطني: الاسم، نوع القطاع، الموقع الإلكتروني إن كنت تعرفه (وإلا اتركه فاضي)، وإيميل قسم التسويق إن كنت متأكدًا منه فعليًا (وإلا اتركه فاضي، سيتم التحقق يدويًا لاحقًا).
+ثم اكتب مسودتين إيميل تعريفي قصير جدًا (سطرين لكل نسخة) تقدّم شركة Tiger Event لتنظيم الفعاليات وتطلب التسجيل كمورّد معتمد: نسخة عربية ونسخة إنجليزية مستقلة.
+أعد النتيجة بصيغة JSON فقط بدون أي نص إضافي، بالشكل التالي بالضبط:
 [{"company_name":"...","sector_type":"...","website":"...","email":"...","draft_email_ar":"...","draft_email_en":"..."}]`;
 
   let data;
@@ -317,15 +315,15 @@ async function generateLeads(env, sector, count) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 2500,
+        max_tokens: 1200,
         messages: [{ role: "user", content: prompt }],
       }),
-      signal: AbortSignal.timeout(55000),
+      signal: AbortSignal.timeout(20000),
     });
     data = await resp.json();
   } catch (e) {
     const msg = (e.name === "TimeoutError" || e.name === "AbortError")
-      ? "انتهت مهلة الاتصال بـ Anthropic (55 ثانية) — جرب تحديد قطاع أضيق أو عدد أقل"
+      ? "انتهت مهلة الاتصال بـ Anthropic (20 ثانية) — جرب تحديد قطاع أضيق أو عدد أقل"
       : "فشل الاتصال بـ Anthropic API: " + String(e);
     return { ok: false, error: msg };
   }
@@ -854,9 +852,9 @@ async function pushSignatures() {
 async function genLeads() {
   const sector = document.getElementById('sectorInput').value;
   const el = document.getElementById('leadsResult');
-  el.innerText = 'جاري التوليد... (قد يأخذ حتى دقيقة)';
+  el.innerText = 'جاري التوليد... (يفترض أقل من 25 ثانية)';
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 65000);
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
   try {
     const res = await fetch('/leads/generate', {
       method: 'POST',
@@ -873,7 +871,7 @@ async function genLeads() {
   } catch (e) {
     clearTimeout(timeoutId);
     if (e.name === 'AbortError') {
-      el.innerText = 'تجاوز الطلب 65 ثانية — جرب مرة ثانية';
+      el.innerText = 'تجاوز الطلب 25 ثانية — جرب مرة ثانية';
     } else {
       el.innerText = 'خطأ بالاتصال: ' + String(e);
     }
