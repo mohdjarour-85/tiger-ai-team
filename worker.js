@@ -107,8 +107,11 @@ export default {
       // ===================== موظف بحث الشركات =====================
       if (path === "/leads/generate" && request.method === "POST") {
         const body = await request.json();
-        ctx.waitUntil(generateLeads(env, body.sector, body.count || 5).catch(() => {}));
+        ctx.waitUntil(runLeadJob(env, body.sector, body.count || 5));
         return json({ ok: true, queued: true });
+      }
+      if (path === "/leads/status") {
+        return json(await getLatestLeadJob(env));
       }
       if (path === "/leads/list") {
         return json(await getLeads(env));
@@ -195,6 +198,12 @@ async function setupDatabase(env) {
       website TEXT,
       draft_email_ar TEXT,
       draft_email_en TEXT
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS lead_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT,
+      status TEXT,
+      message TEXT
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -365,6 +374,35 @@ async function generateLeads(env, sector, count) {
   }
 
   return { ok: true, added: list.length, items: list };
+}
+
+async function runLeadJob(env, sector, count) {
+  let result;
+  try {
+    result = await generateLeads(env, sector, count);
+  } catch (e) {
+    result = { ok: false, error: "خطأ غير متوقع بالتوليد: " + String(e) };
+  }
+  const message = result.ok
+    ? `تمت إضافة ${result.added} شركة`
+    : `خطأ: ${result.error || "غير معروف"}`;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO lead_jobs (created_at, status, message) VALUES (?, ?, ?)`
+    )
+      .bind(new Date().toISOString(), result.ok ? "ok" : "error", message)
+      .run();
+  } catch (e) {
+    // حتى لو فشل تسجيل النتيجة، ما نوقف التنفيذ
+  }
+  return result;
+}
+
+async function getLatestLeadJob(env) {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM lead_jobs ORDER BY id DESC LIMIT 1"
+  ).all();
+  return results && results[0] ? results[0] : null;
 }
 
 async function getLeads(env) {
@@ -851,10 +889,9 @@ async function pushSignatures() {
 async function genLeads() {
   const sector = document.getElementById('sectorInput').value;
   const el = document.getElementById('leadsResult');
+  const startedAt = new Date().toISOString();
   el.innerText = 'بدأ التوليد بالخلفية... جاري التحقق تلقائيًا (قد يأخذ دقيقة أو دقيقتين)';
-  let startCount = 0;
   try {
-    startCount = (await (await fetch('/leads/list')).json()).length;
     await fetch('/leads/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -868,14 +905,14 @@ async function genLeads() {
   const poll = setInterval(async () => {
     tries++;
     try {
-      const list = await (await fetch('/leads/list')).json();
-      if (list.length > startCount) {
+      const job = await (await fetch('/leads/status')).json();
+      if (job && job.created_at > startedAt) {
         clearInterval(poll);
-        el.innerText = 'تمت إضافة ' + (list.length - startCount) + ' شركة جديدة ✅';
-        setTimeout(load, 1000);
+        el.innerText = job.message;
+        if (job.status === 'ok') setTimeout(load, 1000);
       } else if (tries >= 18) {
         clearInterval(poll);
-        el.innerText = 'أخذ وقت أطول من المتوقع — تحقق من قائمة الشركات يدويًا بعد شوي';
+        el.innerText = 'ما وصل رد بعد دقائق طويلة — تحقق من Cloudflare Logs، ممكن ANTHROPIC_API_KEY غير مضبوط أو فيه مشكلة اتصال';
       }
     } catch (e) {}
   }, 10000);
