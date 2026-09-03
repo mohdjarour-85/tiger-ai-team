@@ -107,7 +107,8 @@ export default {
       // ===================== موظف بحث الشركات =====================
       if (path === "/leads/generate" && request.method === "POST") {
         const body = await request.json();
-        return json(await generateLeads(env, body.sector, body.count || 8));
+        ctx.waitUntil(generateLeads(env, body.sector, body.count || 5).catch(() => {}));
+        return json({ ok: true, queued: true });
       }
       if (path === "/leads/list") {
         return json(await getLeads(env));
@@ -365,6 +366,7 @@ async function generateLeads(env, sector, count) {
 
   return { ok: true, added: list.length, items: list };
 }
+
 async function getLeads(env) {
   const { results } = await env.DB.prepare(
     "SELECT * FROM leads ORDER BY id DESC LIMIT 50"
@@ -848,32 +850,35 @@ async function pushSignatures() {
 
 async function genLeads() {
   const sector = document.getElementById('sectorInput').value;
-  // يسمح بالبحث حتى لو كان الحقل فاضي (بحث شامل افتراضي)
   const el = document.getElementById('leadsResult');
-  el.innerText = 'جاري البحث... (قد يأخذ دقيقة كاملة)';
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  el.innerText = 'بدأ التوليد بالخلفية... جاري التحقق تلقائيًا (قد يأخذ دقيقة أو دقيقتين)';
+  let startCount = 0;
   try {
-    const res = await fetch('/leads/generate', {
+    startCount = (await (await fetch('/leads/list')).json()).length;
+    await fetch('/leads/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sector }),
-      signal: controller.signal
+      body: JSON.stringify({ sector })
     });
-    clearTimeout(timeoutId);
-    const data = await res.json();
-    el.innerText = data.ok
-      ? 'تمت إضافة ' + data.added + ' شركة'
-      : 'خطأ: ' + (data.error || '');
   } catch (e) {
-    clearTimeout(timeoutId);
-    if (e.name === 'AbortError') {
-      el.innerText = 'تجاوز البحث المهلة الزمنية (90 ثانية) — جرب تحديد قطاع أضيق (مثلاً "بنوك بالكويت" بدل ترك الحقل فاضي)';
-    } else {
-      el.innerText = 'خطأ بالاتصال: ' + String(e);
-    }
+    el.innerText = 'تعذر إرسال الطلب: ' + String(e);
+    return;
   }
-  setTimeout(load, 5000);
+  let tries = 0;
+  const poll = setInterval(async () => {
+    tries++;
+    try {
+      const list = await (await fetch('/leads/list')).json();
+      if (list.length > startCount) {
+        clearInterval(poll);
+        el.innerText = 'تمت إضافة ' + (list.length - startCount) + ' شركة جديدة ✅';
+        setTimeout(load, 1000);
+      } else if (tries >= 18) {
+        clearInterval(poll);
+        el.innerText = 'أخذ وقت أطول من المتوقع — تحقق من قائمة الشركات يدويًا بعد شوي';
+      }
+    } catch (e) {}
+  }, 10000);
 }
 load();
 </script>
