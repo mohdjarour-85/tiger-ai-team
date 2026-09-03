@@ -821,7 +821,7 @@ async function syncEmail() {
   const res = await fetch('/email/sync', { method: 'POST' });
   const data = await res.json();
   document.getElementById('emailResult').innerText = JSON.stringify(data);
-  load();
+  setTimeout(load, 5000);
 }
 
 async function pushSignatures() {
@@ -868,7 +868,7 @@ async function genLeads() {
       el.innerText = 'خطأ بالاتصال: ' + String(e);
     }
   }
-  load();
+  setTimeout(load, 5000);
 }
 load();
 </script>
