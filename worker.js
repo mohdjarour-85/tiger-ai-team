@@ -156,9 +156,11 @@ async function setupDatabase(env) {
       created_at TEXT,
       sector TEXT,
       company_name TEXT,
+      sector_type TEXT,
       email TEXT,
       website TEXT,
-      draft_email TEXT
+      draft_email_ar TEXT,
+      draft_email_en TEXT
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,28 +253,47 @@ async function getWebsiteReports(env) {
 // موظف بحث الشركات
 // ============================================================
 async function generateLeads(env, sector, count) {
-  const prompt = `ابحث عن ${count} شركات أو مؤسسات حقيقية ومناسبة ضمن القطاع التالي: "${sector}"، يمكن تقديم خدمات تنظيم فعاليات (Tiger Event) لها.
-لكل شركة أعطني: الاسم، الموقع الإلكتروني إن وجد، وإيميل تواصل عام إن وجد (من موقعها الرسمي فقط، ولا تخترع إيميلات).
-ثم اكتب مسودة إيميل تعريفي قصير (3-4 أسطر) بالعربية الفصحى المهنية، يقدّم شركة Tiger Event لتنظيم الفعاليات، مخصص لكل شركة.
-أعد النتيجة بصيغة JSON فقط بدون أي نص إضافي، بالشكل التالي:
-[{"company_name":"...","website":"...","email":"...","draft_email":"..."}]`;
+  const targetSector = sector && sector.trim()
+    ? sector
+    : "أقسام التسويق والعلاقات العامة في البنوك، المؤسسات التجارية، المدارس الأجنبية والإنجليزية، والشركات بمختلف أنواعها في الكويت";
 
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4000,
-      messages: [{ role: "user", content: prompt }],
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-    }),
-  });
+  const prompt = `ابحث فعليًا عبر الإنترنت عن ${count} شركات أو مؤسسات حقيقية بالكويت ضمن هذا النطاق: "${targetSector}".
+المطلوب تحديدًا: إيميل قسم التسويق (Marketing) أو العلاقات العامة (PR) لكل جهة إن وجد بموقعها الرسمي (وليس إيميل عام أو دعم فني)، ولا تخترع أي إيميل غير موجود فعليًا.
+لكل جهة أعطني: الاسم، نوع القطاع (بنك/مدرسة/شركة تجارية/إلخ)، الموقع الإلكتروني، وإيميل قسم التسويق/العلاقات العامة.
+ثم اكتب مسودتين لإيميل تعريفي قصير (3-5 أسطر لكل نسخة) تقدّم شركة Tiger Event لتنظيم الفعاليات، وتطلب التسجيل لديهم كمورّد (Vendor) أو منظّم فعاليات (Event Organizer) معتمد:
+- نسخة بالعربية الفصحى المهنية
+- نسخة بالإنجليزية المهنية (مستقلة، وليست ترجمة حرفية للنسخة العربية)
+أعد النتيجة بصيغة JSON فقط بدون أي نص إضافي قبله أو بعده، بالشكل التالي بالضبط:
+[{"company_name":"...","sector_type":"...","website":"...","email":"...","draft_email_ar":"...","draft_email_en":"..."}]`;
 
-  const data = await resp.json();
+  let data;
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4000,
+        messages: [{ role: "user", content: prompt }],
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+      }),
+    });
+    data = await resp.json();
+  } catch (e) {
+    return { ok: false, error: "فشل الاتصال بـ Anthropic API: " + String(e) };
+  }
+
+  if (data.error) {
+    return { ok: false, error: "خطأ من Anthropic API: " + JSON.stringify(data.error) };
+  }
+  if (!data.content) {
+    return { ok: false, error: "رد غير متوقع من الذكاء الاصطناعي", raw: data };
+  }
+
   const textBlocks = (data.content || [])
     .filter((b) => b.type === "text")
     .map((b) => b.text)
@@ -283,20 +304,22 @@ async function generateLeads(env, sector, count) {
     const clean = textBlocks.replace(/```json|```/g, "").trim();
     list = JSON.parse(clean);
   } catch (e) {
-    return { ok: false, error: "فشل تحليل الرد", raw: textBlocks || data };
+    return { ok: false, error: "فشل تحليل الرد كـ JSON", raw: textBlocks.slice(0, 1000) };
   }
 
   for (const item of list) {
     await env.DB.prepare(
-      `INSERT INTO leads (created_at, sector, company_name, email, website, draft_email) VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO leads (created_at, sector, company_name, sector_type, email, website, draft_email_ar, draft_email_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
         new Date().toISOString(),
-        sector,
+        targetSector,
         item.company_name || "",
+        item.sector_type || "",
         item.email || "",
         item.website || "",
-        item.draft_email || ""
+        item.draft_email_ar || "",
+        item.draft_email_en || ""
       )
       .run();
   }
@@ -463,7 +486,7 @@ async function generateEmailDraftReply(env, fromAddr, subject, summary) {
 الموضوع: ${subject}
 مقتطف: ${summary}
 
-اكتب مسودة رد قصيرة ومهنية بالعربية (3-5 أسطر)، مناسبة لموضوع الرسالة. إذا كانت الرسالة استفسار عن خدمات، رحّب واطلب تفاصيل أكثر (نوع الفعالية، التاريخ، عدد الحضور). إذا كانت غير واضحة، اكتب ردًا عامًا مهذبًا. أعد فقط نص الرد بدون أي شرح إضافي.`;
+اكتشف أولًا لغة الرسالة الأصلية (عربي أو إنجليزي أو أي لغة أخرى)، واكتب مسودة الرد بنفس تلك اللغة بالضبط — لا تترجم ولا تخلط بين اللغتين. اكتب رد قصير ومهني (3-5 أسطر)، مناسب لموضوع الرسالة. إذا كانت الرسالة استفسار عن خدمات، رحّب واطلب تفاصيل أكثر (نوع الفعالية، التاريخ، عدد الحضور). إذا كانت غير واضحة، اكتب ردًا عامًا مهذبًا. أعد فقط نص الرد بدون أي شرح إضافي، وبدون ذكر اللغة المكتشفة.`;
 
   try {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -721,6 +744,7 @@ async function load() {
       <button onclick="syncEmail()">مزامنة الآن</button>
       <a class="btn" href="/email/view">مراجعة وإرسال الردود</a>
       <a class="btn" href="/zoho/connect">ربط حساب جديد</a>
+      <button onclick="pushSignatures()">رفع التوقيعات لكل الحسابات</button>
       <div id="emailResult"></div>
     </div>
     <div class="card">
@@ -736,7 +760,7 @@ async function load() {
     <div class="card">
       <h2>🏢 موظف بحث الشركات</h2>
       <p>عدد الشركات المسجلة: \${s.leads_total}</p>
-      <input id="sectorInput" placeholder="مثال: شركات تنظيم مؤتمرات بالكويت" />
+      <input id="sectorInput" placeholder="اتركه فاضي للبحث الشامل، أو حدد قطاع معيّن" />
       <button onclick="genLeads()">توليد قائمة</button>
       <div id="leadsResult"></div>
     </div>
@@ -751,9 +775,26 @@ async function syncEmail() {
   load();
 }
 
+async function pushSignatures() {
+  const el = document.getElementById('emailResult');
+  el.innerText = 'جاري رفع التوقيعات...';
+  try {
+    const res = await fetch('/zoho/push-signatures', { method: 'POST' });
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      el.innerText = JSON.stringify(data);
+    } catch (e) {
+      el.innerText = 'رد غير متوقع من الخادم: ' + text.slice(0, 500);
+    }
+  } catch (e) {
+    el.innerText = 'خطأ بالاتصال: ' + String(e);
+  }
+}
+
 async function genLeads() {
   const sector = document.getElementById('sectorInput').value;
-  if (!sector) return;
+  // يسمح بالبحث حتى لو كان الحقل فاضي (بحث شامل افتراضي)
   document.getElementById('leadsResult').innerText = 'جاري البحث...';
   const res = await fetch('/leads/generate', {
     method: 'POST',
