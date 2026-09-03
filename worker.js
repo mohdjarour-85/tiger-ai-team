@@ -353,7 +353,7 @@ function getZohoAccounts(env) {
 
 function buildZohoAuthUrl(env) {
   const params = new URLSearchParams({
-    scope: "ZohoMail.messages.READ,ZohoMail.messages.CREATE,ZohoMail.accounts.READ,ZohoMail.accounts.UPDATE",
+    scope: "ZohoMail.messages.READ,ZohoMail.messages.CREATE,ZohoMail.accounts.READ,ZohoMail.accounts.UPDATE,ZohoMail.accounts.CREATE",
     client_id: env.ZOHO_CLIENT_ID || "",
     response_type: "code",
     redirect_uri: env.ZOHO_REDIRECT_URI || "",
